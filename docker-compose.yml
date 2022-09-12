@@ -1,0 +1,54 @@
+version: "3.9"
+services:
+  # Using Traefik to reverse proxy and route incoming requests port 5000 translates to entrypoint web on port 80
+  traefik:
+    image: traefik:v2.8
+    command: --api.insecure=true --providers.docker --entrypoints.web.address=:80
+    ports:
+      - "5000:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+  
+  redis:
+    image: redis
+
+  auth:
+    build: ./auth-api
+    environment:
+      - JWT_SECRET=secret
+    expose:
+      - 5050
+    ports:
+      - 5050:5050
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.authservice.entrypoints=web
+      - traefik.http.middlewares.stripprefix-auth.stripprefix.prefixes=/auth
+      - traefik.http.routers.authservice.rule=PathPrefix(`/auth`)
+      - traefik.http.routers.authservice.middlewares=stripprefix-auth@docker
+  
+  core:
+    build: ./core-api
+    environment:
+      - REDIS_URL=redis://redis
+      - JWT_SECRET=secret
+    expose:
+      - 8000
+    ports:
+      - 8000:8000
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.coreservice.entrypoints=web
+      - traefik.http.middlewares.stripprefix-core.stripprefix.prefixes=/core
+      - traefik.http.routers.coreservice.rule=PathPrefix(`/core`)
+      - traefik.http.routers.coreservice.middlewares=stripprefix-core@docker
+    depends_on:
+      - redis
+  
+  psp-conn:
+    build: ./psp-connector
+    environment:
+      - REDIS_URL=redis://redis
+    depends_on:
+      - redis
